@@ -7,6 +7,7 @@ import (
 
 	// db "p4_web/database"
 	"p4_web/middleware"
+	"p4_web/tools/auth"
 	"p4_web/tools/exception"
 	"time"
 
@@ -63,7 +64,7 @@ func InitRouter() *gin.Engine {
 		api.POST("login", UserController.Login)
 		authGroup := api.Group("/")
 		{
-			authGroup.Use(middleware.Auth())
+			authGroup.Use(auth.Middleware())
 			authGroup.GET("self", UserController.GetSelf)
 		}
 

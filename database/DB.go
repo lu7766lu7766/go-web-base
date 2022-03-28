@@ -2,6 +2,7 @@ package database
 
 import (
 	"fmt"
+	"p4_web/constant"
 	"p4_web/model"
 	"p4_web/tools/env"
 	"p4_web/tools/exception"
@@ -33,7 +34,7 @@ func init() {
 	if err != nil {
 		// log.Print("failed to connect database")
 		panic(exception.ApiException{
-			Code:    []int{-3},
+			Code:    []int{constant.DB_ERROR},
 			Message: fmt.Sprintf("db connect error %v", err.Error()),
 		})
 	}
@@ -41,7 +42,7 @@ func init() {
 	if DB.Error != nil {
 		// log.Printf("database error %v", DB.Error)
 		panic(exception.ApiException{
-			Code:    []int{-3},
+			Code:    []int{constant.DB_ERROR},
 			Message: fmt.Sprintf("database error %v", DB.Error),
 		})
 	}
