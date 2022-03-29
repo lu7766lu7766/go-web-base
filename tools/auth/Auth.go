@@ -1,12 +1,12 @@
 package auth
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
+	"reflect"
 	"strings"
 	"time"
-
-	"golang.org/x/crypto/bcrypt"
 
 	"p4_web/config"
 
@@ -19,80 +19,77 @@ import (
 	"github.com/golang-jwt/jwt"
 )
 
-func Middleware() gin.HandlerFunc {
+func Middleware(guards ...string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		s := strings.Split(c.Request.Header["Authorization"][0], " ")
-		if s[0] == "Bearer" {
-			token, err := jwt.ParseWithClaims(s[1], &jwt.StandardClaims{}, func(token *jwt.Token) (interface{}, error) {
-				return []byte(config.AuthConfig.SecretKey), nil
-			})
-			if err != nil {
-				panic(exception.ApiException{
-					Code:    []int{http.StatusUnauthorized},
-					Message: fmt.Sprintf("invalid access token: %v", err.Error()),
-				})
+		var guarder *config.Guard
+		var err error
+		guards = append(guards, config.AuthConfig.Guard)
+		for _, guard := range guards {
+			if guarder == nil {
+				guarder, err = Check(c, guard)
 			}
-			claims := token.Claims.(*jwt.StandardClaims)
-			db.DB.Where(fmt.Sprintf("%v = ?", config.AuthConfig.PrimaryKey), claims.Issuer).First(&config.AuthConfig.Model)
-			c.Set(constant.AUTH, config.AuthConfig.Model)
-			c.Next()
-		} else {
+		}
+		if guarder == nil {
 			panic(exception.ApiException{
 				Code:    []int{http.StatusUnauthorized},
-				Message: "invalid access token",
+				Message: err.Error(),
 			})
 		}
+		c.Set(constant.AUTH, guarder.Model)
+		c.Next()
 	}
 }
 
-func Check(idValue string, password string) {
-	query := db.DB
-	for index := range config.AuthConfig.Uids {
-		fmt.Println(config.AuthConfig.Uids[index])
-		query = query.Where(fmt.Sprintf("%v = ?", config.AuthConfig.Uids[index]), idValue)
-	}
-
-	err := query.First(&config.AuthConfig.Model).Error
-
-	if err != nil {
-		panic(exception.ApiException{
-			Code:    []int{1001},
-			Message: fmt.Sprintf("user not found: %v", err.Error()),
+func Check(c *gin.Context, guard string) (*config.Guard, error) {
+	s := strings.Split(c.Request.Header["Authorization"][0], " ")
+	if s[0] == "Bearer" {
+		guarder := config.AuthConfig.Guarder(guard)
+		token, err := jwt.ParseWithClaims(s[1], &jwt.StandardClaims{}, func(token *jwt.Token) (interface{}, error) {
+			return []byte(guarder.SecretKey), nil
 		})
-	}
+		if err != nil {
+			return nil, err
+		}
+		claims := token.Claims.(*jwt.StandardClaims)
+		err = db.DB.Where(fmt.Sprintf("%v = ?", guarder.PrimaryKey), claims.Issuer).First(&guarder.Model).Error
 
-	if err := bcrypt.CompareHashAndPassword(config.AuthConfig.Model.Password, []byte(password)); err != nil {
-		panic(exception.ApiException{
-			Code:    []int{1002},
-			Message: fmt.Sprintf("password not equal: %v", err.Error()),
-		})
+		return &guarder, err
+	} else {
+		return nil, errors.New("invalid access token")
 	}
 }
 
-func Generate() map[string]interface{} {
-	user := config.AuthConfig.Model
-	if user == nil {
+func Generate(guard string, checkUser interface{}) map[string]interface{} {
+	guarder := config.AuthConfig.Guarder(guard)
+	// user := guarder.Model
+	if checkUser == nil {
 		panic(exception.ApiException{
 			Code:    []int{401},
 			Message: "user cannot found",
 		})
 	}
+	if reflect.TypeOf(checkUser) != reflect.TypeOf(guarder.Model) {
+		panic(exception.ApiException{
+			Code:    []int{401},
+			Message: "user not equal",
+		})
+	}
+	user := checkUser
 
 	expiresAt := time.Now()
-	if config.AuthConfig.Keep != 0 {
-		expiresAt = expiresAt.Add(config.AuthConfig.Keep)
+	if guarder.Keep != 0 {
+		expiresAt = expiresAt.Add(guarder.Keep)
 	} else {
 		expiresAt = expiresAt.Add(time.Hour * 24 * 365 * 100)
 	}
-
-	userPK := prop.Get(config.AuthConfig.Model, config.AuthConfig.PrimaryKey)
+	userPK := prop.Get(user, guarder.PrimaryKey)
 
 	claims := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.StandardClaims{
 		Issuer:    fmt.Sprintf("%v", userPK),
 		ExpiresAt: expiresAt.Unix(),
 	})
 
-	token, err := claims.SignedString([]byte(config.AuthConfig.SecretKey))
+	token, err := claims.SignedString([]byte(guarder.SecretKey))
 
 	if err != nil {
 		panic(exception.ApiException{

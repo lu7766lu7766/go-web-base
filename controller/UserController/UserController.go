@@ -50,7 +50,7 @@ func Login(c *gin.Context) {
 		})
 	}
 
-	c.Set(constant.RESPONSE, auth.Generate())
+	c.Set(constant.RESPONSE, auth.Generate("user", &user))
 }
 
 func GetSelf(c *gin.Context) {
