@@ -2,6 +2,9 @@ package model
 
 import (
 	"time"
+
+	"golang.org/x/crypto/bcrypt"
+	"gorm.io/gorm"
 )
 
 type User struct {
@@ -21,3 +24,10 @@ type User struct {
 // func (u *User) AfterFind(tx *gorm.DB) (err error) {
 // 	return
 // }
+
+func (u *User) BeforeSave(tx *gorm.DB) (err error) {
+	if u.Password != nil {
+		u.Password, _ = bcrypt.GenerateFromPassword(u.Password, 14)
+	}
+	return
+}
