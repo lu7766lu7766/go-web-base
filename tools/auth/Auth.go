@@ -23,7 +23,9 @@ func Middleware(guards ...string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var guarder *config.Guard
 		var err error
-		guards = append(guards, config.AuthConfig.Guard)
+		if len(guards) == 0 {
+			guards = append(guards, config.AuthConfig.Guard)
+		}
 		for _, guard := range guards {
 			if guarder == nil {
 				guarder, err = Check(c, guard)
@@ -51,9 +53,16 @@ func Check(c *gin.Context, guard string) (*config.Guard, error) {
 			return nil, err
 		}
 		claims := token.Claims.(*jwt.StandardClaims)
-		err = db.DB.Where(fmt.Sprintf("%v = ?", guarder.PrimaryKey), claims.Issuer).First(&guarder.Model).Error
-
-		return &guarder, err
+		s = strings.Split(claims.Issuer, ";")
+		userPK, tokenGuard := s[0], s[1]
+		if tokenGuard != guard {
+			return nil, errors.New("guard error")
+		}
+		err = db.DB.Where(fmt.Sprintf("%v = ?", guarder.PrimaryKey), userPK).First(&guarder.Model).Error
+		if err != nil {
+			return nil, err
+		}
+		return &guarder, nil
 	} else {
 		return nil, errors.New("invalid access token")
 	}
@@ -85,7 +94,7 @@ func Generate(guard string, checkUser interface{}) map[string]interface{} {
 	userPK := prop.Get(user, guarder.PrimaryKey)
 
 	claims := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.StandardClaims{
-		Issuer:    fmt.Sprintf("%v", userPK),
+		Issuer:    fmt.Sprintf("%v;%v", userPK, guard),
 		ExpiresAt: expiresAt.Unix(),
 	})
 
